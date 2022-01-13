@@ -1,0 +1,305 @@
+'CR800 Series - FIC Test 02-12-2013
+'Created by Short Cut (2.8) - Based on rev 0.12.2013b
+'Modified by R.Oliva
+'Add Logic for 24V pump ON/OFF
+' Other modif.: Scan at 1sec
+' Add 4.12 Counters for switch events
+' 4.12.13 P1,P2 try Running Average of 5000 ms (5sec..try..)
+'         RPM new constant, v4b correct to 0.97..mV
+'              also add New_pass to avoid ctr increment..
+
+'Declare Variables and Units
+' Internal battery measure & Temp
+' Set NRECs to 60, fixed 7.1.2014 
+Public BattV
+Public PanelTempC
+' Status input/output 1-4
+Public PStat_1
+Public PStat_2
+Public PStat_3
+Public PStat_4
+' Main 24V battery voltage
+Public SE_Vbat
+' Wind Turbine Current
+Public SE_Iaer
+' Solar panel current
+Public SE_Ifv
+' Wind 24V pump1 current
+Public SE_IpumpW
+' Solar pump2 RPM
+Public SERPM_PvP
+' Q.meter V40 for Pump1 (Wind)
+Public P1_Q1
+' Q.meter V40 for Pump2 (Solar)
+Public P2_Q2
+' add_Flag Timer 2.12.13
+Public Wait_Flag As Boolean
+' add Switches OK Flag, true if OK 2.12.13
+' Set by subroutine CalcSW_Pump_var For 
+Public Switches_OK As Boolean
+' This is an integer value 0 to 3
+Public SW_Pump_var
+' 4.12.13 This Counter for TK_Full Events
+Public TK_FullCounter
+' 4.12.13 This Counter for LowReserve Well Events
+Public LowRes_Counter
+' 4.12.13 This Counter for VBatLow Events
+Public LoVBatCounter
+'4.12.13 v4b To avoid continuos ctr increment..
+Public New_pass
+
+
+Const high = true
+Const low = false
+
+Units BattV=Volts
+Units PStat_1=On/Off
+Units PStat_2=On/Off
+Units PStat_3=On/Off
+Units PStat_4=On/Off
+' Change Scale/offset in VoltSE() instructions 31.10.2013
+' Following appear now in Eng. Units: Volts, A, RPM
+Units SE_Vbat=Volts
+Units SE_Iaer=Amperes
+Units SE_Ifv=Amperes
+Units SE_IpumpW=Amperes
+Units SERPM_PvP=RPM
+' Leave as is - 1 pulse = 25 liters using V40-2.5
+' Scale must be modified. 31.10.2013
+Units P1_Q1=Counts/Hz
+Units P2_Q2=Counts/Hz
+
+
+
+'Define Data Tables
+' DataTable parameters: Name,trigger_condition,size
+' Here we use:          FIC_Table, True, -1 (Autoallocate)
+DataTable(FIC_Table,True,-1)
+  'DataInterval parameters: TimeIntoInterval,Interval, Interv_units,lapses)
+  'Here we use:             0, 1, Min, 10 (Max lapses allowed=10)
+	DataInterval(0,1,Min,10)
+  ' Replace CF Cardout with TableFile, for use with SC115
+  ' Parms: USB:Filename, format,MaxNFiles,NofRecords,Interval,Units,Status,LastFile)
+  ' Here: FICTest1, ASC, AutoAllocate,Save after 60 recs (10,0,Min), 0,0 7.1.2014
+  TableFile ("USB:FICTest1",8,-1,60,0,Min,0,0) ' SC115 Resident mode with N of records
+  Sample(1, PanelTempC, FP2)            ' Add PanelTemp
+  Minimum(1,BattV,FP2,False,False)      ' Add battery minimum
+	Average(1,BattV,FP2,False)            ' Rest as in Shortcut.. (v4.10) 
+	Sample(1,PStat_1,FP2)
+	Sample(1,PStat_2,FP2)
+	Sample(1,PStat_3,FP2)
+	Sample(1,PStat_4,FP2)
+	Average(1,SE_Vbat,FP2,False)
+	Maximum(1,SE_Vbat,FP2,False,True)
+	Minimum(1,SE_Vbat,FP2,False,False)
+	StdDev(1,SE_Vbat,FP2,False)
+	Average(1,SE_Iaer,FP2,False)
+	Maximum(1,SE_Iaer,FP2,False,False)
+	Minimum(1,SE_Iaer,FP2,False,False)
+	StdDev(1,SE_Iaer,FP2,False)
+	Average(1,SE_Ifv,FP2,False)
+	Maximum(1,SE_Ifv,FP2,False,False)
+	Minimum(1,SE_Ifv,FP2,False,False)
+	Average(1,SE_IpumpW,FP2,False)
+	Maximum(1,SE_IpumpW,FP2,False,False)
+	Minimum(1,SE_IpumpW,FP2,False,False)
+	StdDev(1,SE_IpumpW,FP2,False)
+	Average(1,SERPM_PvP,FP2,False)
+	Maximum(1,SERPM_PvP,FP2,False,False)
+	Minimum(1,SERPM_PvP,FP2,False,False)
+	StdDev(1,SERPM_PvP,FP2,False)
+	Average(1,P1_Q1,FP2,False)
+	Maximum(1,P1_Q1,FP2,False,False)
+	Minimum(1,P1_Q1,FP2,False,False)
+	StdDev(1,P1_Q1,FP2,False)
+	Average(1,P2_Q2,FP2,False)
+	Maximum(1,P2_Q2,FP2,False,False)
+	Minimum(1,P2_Q2,FP2,False,False)
+	StdDev(1,P2_Q2,FP2,False)
+	Totalize(1,P2_Q2,FP2,False)
+	Totalize(1,P1_Q1,FP2,False)
+	' Added 4.12.2013 --
+	Sample(1,Switches_OK, FP2)
+	Sample(1,Wait_Flag, FP2)
+	Sample(1,SW_Pump_var, FP2)
+	Sample(1,TK_FullCounter, FP2)
+	Sample(1,LowRes_Counter, FP2)
+	Sample(1,LoVBatCounter, FP2)
+EndTable
+
+
+
+
+' Subroutines:
+' Sub  to evaluate Switch Status and pump on/off - Initial test only 
+' with C1 = PStat1 as trigger.. 2.12.2013
+' add Switches OK Flag, true if OK 2.12.13
+' Set by subroutine CalcSW_Pump_var For 
+' Public Switches_OK As Boolean
+' This is an integer value 0 to 3
+' Public SW_Pump_var
+' SW_Pump Var takes following values
+'     Sw Pump   Status
+'      0   0    SW not ok, pump Off
+'      0   1    SW not ok, pump On
+'      1   0    SW ok, pump Off
+'      1   1    SW ok, pump On
+' 4.12.12 Add support for LW2 (C2 == 1 indicates low supply of water in well..)
+' and for Vbat too low (19V supposed..) Each event will increment a different 
+' counter (TkFull, LowRes, LoVbat counters..)
+'
+Sub CalcSW_Pump_var
+  Switches_OK = true
+  If (PStat_1 = 0 OR PStat_2 = 1 OR SE_Vbat < 19.0) Then
+           Switches_OK = false
+           ' 4.12.13 v4b
+           ' NewPass avoid continous increment of counters while waiting..
+           If New_pass = 1 Then
+               If PStat_1 = 0 Then 
+                  TK_FullCounter = TK_FullCounter + 1 
+                  EndIf
+               If PStat_2 = 1 Then
+                  LowRes_Counter = LowRes_Counter + 1           
+                  EndIf
+              If SE_Vbat < 19.0 Then 
+                  LoVBatCounter = LoVBatCounter + 1            
+                  EndIf
+                  New_pass = 0
+             EndIf
+   Else 
+     ' Reset counter if switches go back ok 4.12.13 v4b
+     New_pass = 1               
+   EndIf
+   ' Now set SW_PumpVar..
+  Select Case Switches_OK
+    Case true:
+      If PStat_4 = 1 Then
+          SW_Pump_var = 3 
+        Else 
+          SW_Pump_var = 2
+        EndIf
+    Case false:
+      If PStat_4 = 1 Then
+          SW_Pump_var = 1 
+        Else
+          SW_Pump_var = 0 
+        EndIf
+  EndSelect
+EndSub
+
+
+'Main Program
+BeginProg
+  ' 4.12.13 Reset counters 
+  TK_FullCounter = 0
+  LowRes_Counter = 0
+  LoVBatCounter = 0
+  New_pass = 1
+  ' Scan parameters: Interval N, Units, BufferRecords, mode
+  ' Here we use:   5, seconds, 1 bufferd, 0:endless loop
+  ' Modify 12.2013:   1, seconds, 1 bufferd, 0:endless loop
+	Scan(1,Sec,1,0)
+	  ' Panel Temperature, added 31.10.13 (250= integration)
+	  PanelTemp(PanelTempC,250) 
+		'Default Datalogger Battery Voltage measurement BattV
+		Battery(BattV)
+		'Generic Control Port Status measurement PStat_1
+		PortGet(PStat_1,1)
+		'Generic Control Port Status measurement PStat_2
+		PortGet(PStat_2,2)
+		'Generic Control Port Status measurement PStat_3
+		PortGet(PStat_3,3)
+		'Generic Control Port Status measurement PStat_4
+		PortGet(PStat_4,4)
+
+    ' VoltSE( Dest,Reps,Range,SEChannel,MeasOFF,SettT,Integ,Mult,Offset)
+    ' 2.12.13 Current Calibration - altered coefficients from CSI6, see 
+    ' Work_SoftwareProjectDoc/FIC-Porvenir/Sensors for XLS files
+    ' A) 
+		' Single-Ended Voltage measurement of wind battery voltage SE_Vbat (nom24V)
+    ' m1= 0.008 (24V range) b1= 0.0 - See CSI6 page
+    ' Range aprox. 0 to 38.4V DC
+		VoltSe(SE_Vbat,1,mV5000,1,False,0,_50Hz,0.008,0.0)
+    ' B)
+		' Single-Ended Voltage measurement of WTG Current, SE_Iaer
+		' ACS 758 U 50
+    ' m2= 0.016666667 A/mV  b2= -10.0 - See CSI6 page
+    ' Range 0 to 50A DC
+    ' New Coefs, 3.10.13 G=0.016745398, K=-9.978685
+		VoltSe(SE_Iaer,1,mV5000,2,True,0,_50Hz,0.016745398,-9.978685)
+    ' C) 
+		' Single-Ended Voltage measurement of PV Current, SE_Ifv
+		' ACS 713 30A
+    ' m3= 0.007518796992 A/mV  b3= -10.0 - See CSI6 page
+    ' Range 0 to 30A DC
+    ' New Coefs, 3.10.13 G=0.007622544 K=-3.782976
+		VoltSe(SE_Ifv,1,mV5000,3,True,0,_50Hz,0.007622544,-3.782976)
+    ' D)
+		' Single-Ended Voltage measurement of WTG Current, SE_IpumpW
+		' ACS 755 E50
+    ' m4= 0.016666667 A/mV  b4= -10.0 - See CSI6 page
+    ' Range 0 to 50A DC
+    ' New Coefs, 3.10.13 G=0.016860819 K=-10.05584 
+    ' Not autorrange, mv5000 now..
+		VoltSe(SE_IpumpW,1,mV5000,4,False,0,_50Hz,0.016860819,-10.05584 )
+		
+    'E) 
+		'Generic Single-Ended Voltage measurements SERPM_PvP
+    ' Not autorrange, mv5000 now..
+		' Constant supposes 0-220Hz is 0-3300 RPM (0-3.41 V) 4.12.13
+		' So constant G = 3300/3410mV= 0.96774
+		VoltSe(SERPM_PvP,1,mV5000,5,False,0,_50Hz,0.96774,0)
+		
+    'Pulse measurement P1_Q1 - )
+    ' Try P1_Q variable, 1 rep, Channel 1, 2 (switch closure), 0 (counts) 
+    ' Mult = 25 liters/pulse (V40-2.5), offset 0
+    ' 4.12.13 Running Average of 5000 ms (5sec..try..)
+		PulseCount(P1_Q1,1,1,2,5000,25,0)
+		'Pulse measurement P2_Q2, modify Mult to 25 l/pulse
+		PulseCount(P2_Q2,1,2,2,5000,25,0)
+		'Call Data Tables and Store Data
+		CallTable(FIC_Table)
+		'Add logic for 24V -pump  2.12.2013 -
+    ' Find SW_Pump Var status of pump and switches..
+		Call CalcSW_Pump_var
+		
+		' First check Wait_timer, test with 5 seconds
+		If Wait_Flag = high Then
+		               If IfTime(0,5,sec) Then 
+		                       Wait_Flag = false
+		               EndIf
+		EndIf
+ 	  ' --------------------------------		
+    ' not waiting currently..
+	  If Wait_Flag = false Then
+	    ' SW_Pump Var takes following values
+	    '     Sw Pump   Status
+	    '      0   0    SW not ok, pump Off
+ 	    '      0   1    SW not ok, pump On
+	    '      1   0    SW ok, pump Off
+ 	    '      1   1    SW ok, pump On
+	    Select Case SW_Pump_var
+	        Case 1:
+            Wait_Flag = high
+            PortSet(4,low)
+	        Case 2:
+	          PortSet(4,high)   
+	        Case else:
+	            ' Do nothing for _var = 0, 3
+	        EndSelect	      
+ 	  ' --------------------------------      
+    ' waiting for timer to expire..
+	  ElseIf Wait_Flag = true Then
+	    Select Case SW_Pump_var
+ 	        Case 1:
+             PortSet(4,low)
+	        Case 3:
+	           PortSet(4,low)   
+	        Case else:
+	            ' Do nothing for _var = 0,2
+ 	        EndSelect
+	   ' end if wait_flag..      
+     EndIf
+
+	NextScan
+EndProg
