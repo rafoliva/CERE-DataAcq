@@ -4,7 +4,7 @@ This repository shows technical aspects related to data acquisition for evaluati
 <br/> <br/>
 A second section presents the ongoing educational **FEDEI** project, which seeks to evaluate a VAWT 700 vertical axis wind Turbine (0.7 kW) connected to a 48 V battery bank, inverter and a small H2 generator and educational FuelCell. This project is based on a newer CR1000X CSI datalogger, and development and preliminary schematics are shown. 
 
-Updated 05-2025: Added final Presentation on Thesis by student Felipe Vasquez, to obtain his Electrical Engineering Degree - March 2023
+**Update 05-2025 **: Added final Presentation on Thesis by student **Felipe Vasquez**, to obtain his Electrical Engineering Degree - March 2023
 on VAWT 700 Power Curve assessment.
 
 These projects are possible thru the cooperation and support of the CERE/UMAG team, director Dr. Humberto Vidal, Ing. María Rosa Gallardo and Pedro Gallardo. Special thanks to students Felipe Vasquez, José, Marcos and logistic support from Marcos Milapichun.
